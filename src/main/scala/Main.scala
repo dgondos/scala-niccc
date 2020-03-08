@@ -25,6 +25,7 @@ object Hello extends SimpleSwingApplication {
     object ui extends Panel {
         background = Color.black
         preferredSize = new Dimension(255, 200)
+        var fg = Color.white
 
         focusable = true
         listenTo(mouse.clicks, mouse.moves, keys)
@@ -45,6 +46,10 @@ object Hello extends SimpleSwingApplication {
             path.moveTo(p.x, p.y); repaint()
         }
 
+        def setColor(c: Color): Unit = {
+            fg = c
+        }
+
         def clear(): Unit = {
             path = new GeneralPath
             repaint()
@@ -55,7 +60,7 @@ object Hello extends SimpleSwingApplication {
             g.setColor(Color.white)
             val h = size.height
             g.drawString("Press left mouse button to start.", 10, h - 26)
-            g.setColor(Color.white)
+            g.setColor(fg)
             g.draw(path)
         }
     }
@@ -83,7 +88,7 @@ object Hello extends SimpleSwingApplication {
     def readDescriptor(d: Int) : (Int, Int) = {
         ((d & 0xF0) >>> 4, d & 0xF)
     }
-    def readPalette(it: Iterator[Byte], p: Array[Int]) : Unit = {
+    def readPalette(it: Iterator[Byte], p: Array[Color]) : Array[Color] = {
         val l = readByte(it)
         val r = readByte(it)
         val bitmask = mkWord16eb(l, r)
@@ -92,9 +97,17 @@ object Hello extends SimpleSwingApplication {
             if (set) {
                 val cl = readByte(it)
                 val cr = readByte(it)
-                p.update(15 - i, mkWord16eb(cl, cr))
+                p.update(15 - i, decodeAtariSTColor(mkWord16eb(cl, cr)))
             }
         }
+        p
+    }
+    def decodeAtariSTColor(st: Int): Color = {
+        //Atari ST format: 00000RRR0GGG0BBB
+        val blue = (st & 0x7) << 4
+        val green = ((st & 0x70) >>> 4) << 4
+        val red = ((st & 0x700) >>> 8) << 4
+        new Color(red, green, blue)
     }
     def readIndexedVerts(it: Iterator[Byte]) : List[(Int, Int)] = {
         var verts = List[(Int, Int)]()
@@ -113,25 +126,26 @@ object Hello extends SimpleSwingApplication {
 
     def startDraw(): Unit = {
         var frames = 0
+        var palette = Array[Color]()
         for (b_i <- 0 until 9) {
             val block = bin.slice(b_i * 64 * 1024, (b_i + 1) * 64 * 1024)
             val it = block.iterator
             var endOfBlock = false
+
             while (!endOfBlock) { // no idea how many frames per block
                 val b_flag = readByte(it)
                 var indexedVerts = Array[(Int, Int)]()
-                var polys = List[List[(Int, Int, Int)]]() // x,y,color
-                var palette = Array[Int]()
-                for (i <- 0 until 16) {
-                    palette = palette :+ 0
-                }
+                var polys = List[(List[Point], Color)]()
 
                 breakable {
                     if (isBlank(b_flag)) {
                         ui.clear()
                     }
                     if (isPalette(b_flag)) {
-                        readPalette(it, palette)
+                        for (i <- 0 until 16) {
+                            palette = palette :+ Color.black
+                        }
+                        palette = readPalette(it, palette)
                     }
                     if (isIndexed(b_flag)) {
                         indexedVerts = indexedVerts ++ readIndexedVerts(it)
@@ -142,10 +156,14 @@ object Hello extends SimpleSwingApplication {
                         d match {
                             case 0xFF => { // end of frame
                                 polys.foreach(p => {
-                                    ui.moveTo(new Point(p.head._1, p.head._2))
-                                    p.foreach(v => {
-                                        ui.lineTo(new Point(v._1, v._2))
+                                    val verts = p._1
+                                    val color = p._2
+                                    ui.moveTo(verts.head)
+                                    ui.setColor(color)
+                                    verts.foreach(v => {
+                                        ui.lineTo(v)
                                     })
+                                    ui.path.closePath()
                                 })
                                 Thread.sleep(33)
                                 frames = frames + 1
@@ -164,17 +182,17 @@ object Hello extends SimpleSwingApplication {
                             case _ => { // data
                                 val (colorIdx, nbrVerts) = readDescriptor(d)
                                 val color = palette(colorIdx)
-                                var p = List[(Int, Int, Int)]()
+                                var verts = List[Point]()
                                 for (i <- 0 until nbrVerts) {
                                     if (isIndexed(b_flag)) {
                                         val vert = indexedVerts(readByte(it))
-                                        p = p :+ (vert._1, vert._2, color)
+                                        verts = verts :+ new Point(vert._1, vert._2)
                                     }
                                     else {
-                                        p = p :+ (readByte(it), readByte(it), color)
+                                        verts = verts :+ new Point(readByte(it), readByte(it))
                                     }
                                 }
-                                polys = polys :+ p
+                                polys = polys :+ (verts, color)
                             }
                         }
                     }
