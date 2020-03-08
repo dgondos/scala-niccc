@@ -95,6 +95,10 @@ object NICCC extends SimpleSwingApplication {
         new Color(red, green, blue)
     }
 
+    def mkWord16eb (l: Int, r: Int) : Int = {
+        ((l << 8) | r)
+    }
+
     val bis = new BufferedInputStream(new FileInputStream("scene1.bin"))
     val bin: Array[Byte] = Stream.continually(bis.read).takeWhile(-1 !=).map(_.toByte).toArray
 
@@ -110,19 +114,8 @@ object NICCC extends SimpleSwingApplication {
 
             while (!endOfBlock) { // variable frames per block
                 val flag = new FrameFlag(readByte)
-                if (flag.isPalette) {
-                    def mkWord16eb (l: Int, r: Int) : Int = {
-                        ((l << 8) | r)
-                    }
-                    val bitmask = mkWord16eb(readByte, readByte)
-                    for (i <- 0 to 15) {
-                        val set = (bitmask & (1L << i)) != 0
-                        if (set) {
-                            palette.update(15 - i, decodeAtariSTColor(mkWord16eb(readByte, readByte)))
-                        }
-                    }
-                }
-
+                val bitmask = if (flag.isPalette) mkWord16eb(readByte, readByte) else 0
+                palette = if (flag.isPalette) (for (i <- 0 to 15) yield i).map(i => if ((bitmask & (1L << 15 - i)) != 0) decodeAtariSTColor(mkWord16eb(readByte, readByte)) else palette(i)).toArray else palette
                 val indexedVerts = if (flag.isIndexed) (for (i <- 0 until readByte) yield i).map(_ => new Point(readByte, readByte)).toArray else Array[Point]()
                 var polys = List[(List[Point], Color)]()
 
