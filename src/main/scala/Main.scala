@@ -26,6 +26,7 @@ object Hello extends SimpleSwingApplication {
         background = Color.black
         preferredSize = new Dimension(255, 200)
         var fg = Color.white
+        var polys = List[(List[Point], Color)]()
 
         focusable = true
         listenTo(mouse.clicks, mouse.moves, keys)
@@ -35,23 +36,14 @@ object Hello extends SimpleSwingApplication {
         }
 
         /* records the dragging */
-        var path = new GeneralPath
-        path.moveTo(0,0)
 
-        def lineTo(p: Point): Unit = {
-            path.lineTo(p.x, p.y); repaint()
-        }
-
-        def moveTo(p: Point): Unit = {
-            path.moveTo(p.x, p.y); repaint()
-        }
-
-        def setColor(c: Color): Unit = {
-            fg = c
+        def drawPolys(p: List[(List[Point], Color)]): Unit = {
+            polys = p
+            repaint()
         }
 
         def clear(): Unit = {
-            path = new GeneralPath
+            polys = List[(List[Point], Color)]()
             repaint()
         }
 
@@ -60,8 +52,20 @@ object Hello extends SimpleSwingApplication {
             g.setColor(Color.white)
             val h = size.height
             g.drawString("Press left mouse button to start.", 10, h - 26)
-            g.setColor(fg)
-            g.draw(path)
+            polys.foreach(p => {
+                val verts = p._1
+                val color = p._2
+
+                g.setColor(color)
+                val path = new GeneralPath
+
+                path.moveTo(verts.head.x, verts.head.y)
+                verts.foreach(v => {
+                    path.lineTo(v.x, v.y)
+                })
+                path.closePath()
+                g.draw(path)
+            })
         }
     }
 
@@ -155,16 +159,7 @@ object Hello extends SimpleSwingApplication {
                         val d = readByte(it)
                         d match {
                             case 0xFF => { // end of frame
-                                polys.foreach(p => {
-                                    val verts = p._1
-                                    val color = p._2
-                                    ui.moveTo(verts.head)
-                                    ui.setColor(color)
-                                    verts.foreach(v => {
-                                        ui.lineTo(v)
-                                    })
-                                    ui.path.closePath()
-                                })
+                                ui.drawPolys(polys)
                                 Thread.sleep(33)
                                 frames = frames + 1
                                 break
