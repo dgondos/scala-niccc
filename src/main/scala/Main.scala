@@ -107,17 +107,17 @@ object NICCC extends SimpleSwingApplication {
             var bytesRead = 0
             def next = {
                 bytesRead = bytesRead + 1
-                bin.read & 0xFF
+                bin.read & 0xFF // stupid java
             }
         }
-        while(true) {
+        while(data.bin.available != 0) {
             val flag = new FrameFlag(data.next)
             val bitmask = if (flag.isPalette) mkWord16eb(data.next, data.next) else 0
             palette = if (flag.isPalette) (for (i <- 0 to 15) yield i).map(i => if ((bitmask & (1L << 15 - i)) != 0) decodeAtariSTColor(mkWord16eb(data.next, data.next)) else palette(i)).toArray else palette
             val indexedVerts = if (flag.isIndexed) (for (i <- 0 until data.next) yield i).map(_ => new Point(data.next, data.next)).toArray else Array[Point]()
             var d = new PolyDescriptor(0)
-            val frameData = Stream.continually(d = new PolyDescriptor(data.next)).map(_ => if (List(0xFF,0xFE,0xFD).contains(d.value)) None else Some((for (i <- 0 until d.nbrVerts) yield i).map(_ => if (flag.isIndexed) indexedVerts(data.next) else new Point(data.next, data.next)).toList, palette(d.colorIdx))).takeWhile(p => p.isDefined)
-            ui.updatePolys(frameData.filter(e => e.isDefined).map(e => e.get).toList)
+            val polys = Stream.continually(d = new PolyDescriptor(data.next)).map(_ => if (List(0xFF,0xFE,0xFD).contains(d.value)) None else Some((for (i <- 0 until d.nbrVerts) yield i).map(_ => if (flag.isIndexed) indexedVerts(data.next) else new Point(data.next, data.next)).toList, palette(d.colorIdx))).takeWhile(p => p.isDefined)
+            ui.updatePolys(polys.map(e => e.get).toList)
             ui.repaint
             Thread.sleep(33)
             if (d.value == 0xFE) {
