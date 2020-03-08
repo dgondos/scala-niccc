@@ -18,6 +18,7 @@ import java.awt.Dimension
 import scala.swing.event.MouseReleased
 import scala.swing.event.MousePressed
 import scala.concurrent.Future
+import java.awt.Polygon
 
 object Hello extends SimpleSwingApplication {
     implicit val ec: scala.concurrent.ExecutionContext = scala.concurrent.ExecutionContext.global
@@ -57,14 +58,12 @@ object Hello extends SimpleSwingApplication {
                 val color = p._2
 
                 g.setColor(color)
-                val path = new GeneralPath
+                val path = new Polygon
 
-                path.moveTo(verts.head.x, verts.head.y)
                 verts.foreach(v => {
-                    path.lineTo(v.x, v.y)
+                    path.addPoint(v.x, v.y)
                 })
-                path.closePath()
-                g.draw(path)
+                g.fillPolygon(path)
             })
         }
     }
