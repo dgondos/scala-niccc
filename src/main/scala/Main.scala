@@ -26,19 +26,20 @@ object NICCC extends SimpleSwingApplication {
 
     object ui extends Panel {
         background = Color.black
-        preferredSize = new Dimension(255, 200)
+        preferredSize = new Dimension(250, 200)
         focusable = true
         listenTo(mouse.clicks, mouse.moves, keys)
 
         var fg = Color.white
-        var polys = List[(List[Point], Color)]()
+        var polys = List[(Polygon, Color)]()
 
         reactions += {
-            case e: MouseReleased => Future(try { startDraw } catch { case e: Throwable => e.printStackTrace() } )
+            case e: MouseReleased => Future(startDraw)
         }
 
-        def updatePolys(p: List[(List[Point], Color)]): Unit = {
-            polys = p
+        def drawFrame(polys: List[(Polygon, Color)]) : Unit = {
+            this.polys = polys
+            repaint
         }
 
         override def paintComponent(g: Graphics2D): Unit = {
@@ -47,16 +48,8 @@ object NICCC extends SimpleSwingApplication {
             val h = size.height
             g.drawString("Press left mouse button to start.", 10, h - 26)
             polys.foreach(p => {
-                val verts = p._1
-                val color = p._2
-
-                g.setColor(color)
-                val path = new Polygon
-
-                verts.foreach(v => {
-                    path.addPoint(v.x, v.y)
-                })
-                g.fillPolygon(path)
+                g.setColor(p._2)
+                g.fillPolygon(p._1)
             })
         }
     }
@@ -113,12 +106,39 @@ object NICCC extends SimpleSwingApplication {
         while(data.bin.available != 0) {
             val flag = new FrameFlag(data.next)
             val bitmask = if (flag.isPalette) mkWord16eb(data.next, data.next) else 0
-            palette = if (flag.isPalette) (for (i <- 0 to 15) yield i).map(i => if ((bitmask & (1L << 15 - i)) != 0) decodeAtariSTColor(mkWord16eb(data.next, data.next)) else palette(i)).toArray else palette
-            val indexedVerts = if (flag.isIndexed) (for (i <- 0 until data.next) yield i).map(_ => new Point(data.next, data.next)).toArray else Array[Point]()
+            palette = if (flag.isPalette)
+                        (for (i <- 0 to 15) yield i)
+                            .map(i => if ((bitmask & (1L << 15 - i)) != 0)
+                                        decodeAtariSTColor(mkWord16eb(data.next, data.next))
+                                      else
+                                        palette(i))
+                            .toArray
+                      else
+                        palette
+            val indexedVerts = if (flag.isIndexed)
+                                 (for (i <- 0 until data.next) yield i)
+                                    .map(_ => new Point(data.next, data.next))
+                                    .toArray
+                               else
+                                 Array[Point]()
             var d = new PolyDescriptor(0)
-            val polys = Stream.continually(d = new PolyDescriptor(data.next)).map(_ => if (List(0xFF,0xFE,0xFD).contains(d.value)) None else Some((for (i <- 0 until d.nbrVerts) yield i).map(_ => if (flag.isIndexed) indexedVerts(data.next) else new Point(data.next, data.next)).toList, palette(d.colorIdx))).takeWhile(p => p.isDefined)
-            ui.updatePolys(polys.map(e => e.get).toList)
-            ui.repaint
+            val polys = Stream
+                .continually(d = new PolyDescriptor(data.next))
+                .map(_ => if (List(0xFF,0xFE,0xFD).contains(d.value))
+                            None
+                        else
+                            Some((for (i <- 0 until d.nbrVerts) yield i)
+                                    .map(_ => if (flag.isIndexed)
+                                                indexedVerts(data.next)
+                                            else
+                                                new Point(data.next, data.next))
+                                    .toList,
+                                    palette(d.colorIdx)))
+                .takeWhile(p => p.isDefined)
+                .map(p => (new Polygon(p.get._1.map(v => v.x).toArray, p.get._1.map(v => v.y).toArray, p.get._1.length),
+                            p.get._2))
+                .toList
+            ui.drawFrame(polys)
             Thread.sleep(33)
             if (d.value == 0xFE) {
                 // end of block, skip to next 64k
@@ -128,5 +148,4 @@ object NICCC extends SimpleSwingApplication {
             }
         }
     }
-
 }
