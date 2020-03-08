@@ -19,6 +19,7 @@ import scala.swing.event.MouseReleased
 import scala.swing.event.MousePressed
 import scala.concurrent.Future
 import java.awt.Polygon
+import scala.None
 
 object NICCC extends SimpleSwingApplication {
     implicit val ec: scala.concurrent.ExecutionContext = scala.concurrent.ExecutionContext.global
@@ -99,50 +100,30 @@ object NICCC extends SimpleSwingApplication {
         ((l << 8) | r)
     }
 
-    val bis = new BufferedInputStream(new FileInputStream("scene1.bin"))
-    val bin: Array[Byte] = Stream.continually(bis.read).takeWhile(-1 !=).map(_.toByte).toArray
-
     def startDraw : Unit = {
         var palette = Array.fill(16)(Color.black)
-        for (b_i <- 0 until 9) {
-            val block = bin.slice(b_i * 64 * 1024, (b_i + 1) * 64 * 1024)
-            val it = block.iterator
-            def readByte : Int = {
-                it.next & 0xFF // stupid java
+        object data {
+            val bin = new BufferedInputStream(new FileInputStream("scene1.bin"))
+            var bytesRead = 0
+            def next = {
+                bytesRead = bytesRead + 1
+                bin.read & 0xFF
             }
-            var endOfBlock = false
-
-            while (!endOfBlock) { // variable frames per block
-                val flag = new FrameFlag(readByte)
-                val bitmask = if (flag.isPalette) mkWord16eb(readByte, readByte) else 0
-                palette = if (flag.isPalette) (for (i <- 0 to 15) yield i).map(i => if ((bitmask & (1L << 15 - i)) != 0) decodeAtariSTColor(mkWord16eb(readByte, readByte)) else palette(i)).toArray else palette
-                val indexedVerts = if (flag.isIndexed) (for (i <- 0 until readByte) yield i).map(_ => new Point(readByte, readByte)).toArray else Array[Point]()
-                var polys = List[(List[Point], Color)]()
-
-                breakable {
-                    while (true) { // read until encountering special descriptor flag
-                        val d = new PolyDescriptor(readByte)
-                        d.value match {
-                            case 0xFF => {
-                                ui.updatePolys(polys)
-                                ui.repaint
-                                Thread.sleep(33)
-                                break
-                            }
-                            case 0xFE => {
-                                endOfBlock = true
-                                break
-                            }
-                            case 0xFD => {
-                                endOfBlock = true
-                                break
-                            }
-                            case _ => { // data
-                                val verts = (for (i <- 0 until d.nbrVerts) yield i).map(_ => if (flag.isIndexed) indexedVerts(readByte) else new Point(readByte, readByte)).toList
-                                polys = polys :+ (verts, palette(d.colorIdx))
-                            }
-                        }
-                    }
+        }
+        while(true) {
+            val flag = new FrameFlag(data.next)
+            val bitmask = if (flag.isPalette) mkWord16eb(data.next, data.next) else 0
+            palette = if (flag.isPalette) (for (i <- 0 to 15) yield i).map(i => if ((bitmask & (1L << 15 - i)) != 0) decodeAtariSTColor(mkWord16eb(data.next, data.next)) else palette(i)).toArray else palette
+            val indexedVerts = if (flag.isIndexed) (for (i <- 0 until data.next) yield i).map(_ => new Point(data.next, data.next)).toArray else Array[Point]()
+            var d = new PolyDescriptor(0)
+            val frameData = Stream.continually(d = new PolyDescriptor(data.next)).map(_ => if (List(0xFF,0xFE,0xFD).contains(d.value)) None else Some((for (i <- 0 until d.nbrVerts) yield i).map(_ => if (flag.isIndexed) indexedVerts(data.next) else new Point(data.next, data.next)).toList, palette(d.colorIdx))).takeWhile(p => p.isDefined)
+            ui.updatePolys(frameData.filter(e => e.isDefined).map(e => e.get).toList)
+            ui.repaint
+            Thread.sleep(33)
+            if (d.value == 0xFE) {
+                // end of block, skip to next 64k
+                while(data.bytesRead % (64 * 1024) != 0) {
+                    data.next
                 }
             }
         }
